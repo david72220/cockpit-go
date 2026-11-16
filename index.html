@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-yX2I3DIZ/soKf/DGbdh8N/4Cxe4tuGxHpHFdaIMDmQs='; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-zEu4fEx1t6jTGnCK5h+PtTIePkCH+LiwWKnUnEhd3/o='; style-src 'unsafe-inline'; connect-src https://n8n.srv1179315.hstgr.cloud; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Cockpit GO</title>
 <style>
@@ -29,6 +29,7 @@ textarea{width:100%;height:90px;font:.75rem ui-monospace,monospace;box-sizing:bo
 <script>
 "use strict";
 const RP = "david72220.github.io", BOT = "Claude_cockpit_David_bot", VERSION = "kmc-go-v1", VALIDITE = 300;
+const RELAIS = "https://n8n.srv1179315.hstgr.cloud/webhook/cockpit-go-depot";
 const zone = document.getElementById("zone");
 const CHAMP = /^[\x21-\x7e]{1,256}$/;
 function el(tag, attrs, texte) { const e = document.createElement(tag); Object.assign(e, attrs || {}); if (texte !== undefined) e.textContent = texte; return e; }
@@ -72,7 +73,8 @@ async function enroler() {
 async function go(frag) {
   let o;
   try { o = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(deB64u(frag))); } catch (e) { return erreur("Lien illisible."); }
-  if (!o || typeof o !== "object" || !["id", "e", "n", "t"].every(k => typeof o[k] === "string" && CHAMP.test(o[k])) || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(o.t))
+  if (!o || typeof o !== "object" || !["id", "e", "n", "t"].every(k => typeof o[k] === "string" && CHAMP.test(o[k])) || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(o.t)
+      || (o.k !== undefined && !(typeof o.k === "string" && CHAMP.test(o.k))))
     return erreur("Lien incomplet.");
   const age = Math.round(Date.now() / 1000 - Date.parse(o.t) / 1000);
   let nom; try { nom = decodeURIComponent(o.id); } catch (e) { nom = o.id; }
@@ -87,7 +89,17 @@ async function go(frag) {
     try {
       const a = await navigator.credentials.get({ publicKey: { challenge: defi, rpId: RP, userVerification: "required", timeout: 120000 } });
       const charge = { v: 1, id: o.id, ts: o.t, a: b64u(a.response.authenticatorData), c: b64u(a.response.clientDataJSON), s: b64u(a.response.signature) };
-      sortie("Signé. Colle ce texte au bot (valable jusqu'à 5 min après l'émission du lien) :", "GOFACEID " + b64u(new TextEncoder().encode(JSON.stringify(charge))));
+      const texte = "GOFACEID " + b64u(new TextEncoder().encode(JSON.stringify(charge)));
+      // Relais non fiable : il ne fait que transporter l'assertion, la garde la vérifie sur le Mac. En panne : copier-coller.
+      if (typeof o.k === "string" && CHAMP.test(o.k)) {
+        zone.replaceChildren(el("p", {}, "Signé. Envoi au Mac…"));
+        try {
+          const r = await fetch(RELAIS, { method: "POST", mode: "cors", credentials: "omit", cache: "no-store",
+            headers: { "Content-Type": "text/plain" }, body: JSON.stringify({ k: o.k, charge: texte }) });
+          if (r.ok) { zone.replaceChildren(el("p", {}, "✓ Envoyé. Le Mac vérifie la signature ; le bot confirme le GO sur Telegram dans moins d'une minute.")); return; }
+        } catch (e) {}
+      }
+      sortie("Signé. Colle ce texte au bot (valable jusqu'à 5 min après l'émission du lien) :", texte);
     } catch (e) { erreur("Signature refusée : " + e.message); }
   };
 }
