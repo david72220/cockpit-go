@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-vKEoVyT6eGrV5uWc8k7PhkgGvS8npo50PwO7UNw7+dU='; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>Cockpit GO</title>
+<style>
+body{font-family:-apple-system,system-ui,sans-serif;margin:0;padding:20px 16px;background:#f4f6f9;color:#14213d}
+main{max-width:520px;margin:auto}
+h1{font-size:1.3rem}
+.carte{background:#fff;border-radius:14px;padding:16px;margin:12px 0;box-shadow:0 1px 4px #0002}
+.emp{font:700 1.6rem ui-monospace,Menlo,monospace;letter-spacing:.05em;word-break:break-all}
+.petit{font:.8rem ui-monospace,Menlo,monospace;color:#555;word-break:break-all}
+button{font-size:1.1rem;padding:14px;border:0;border-radius:12px;background:#1f4e9c;color:#fff;width:100%;margin:6px 0}
+button:disabled{background:#999}
+textarea{width:100%;height:90px;font:.75rem ui-monospace,monospace;box-sizing:border-box}
+.err{color:#b00020;font-weight:600}
+@media (prefers-color-scheme:dark){body{background:#111;color:#eee}.carte{background:#1d1d1f}.petit{color:#aaa}}
+</style>
+</head>
+<body>
+<main>
+<h1>Cockpit — signature Face ID</h1>
+<div id="zone" class="carte">Chargement…</div>
+<p class="petit">Rien ne part de cette page : le texte produit se colle au bot du Cockpit, qui le vérifie sur le Mac.</p>
+</main>
+<script>
+"use strict";
+const RP = "david72220.github.io", BOT = "kmc_cockpit_go_bot", VERSION = "kmc-go-v1", VALIDITE = 300;
+const zone = document.getElementById("zone");
+const CHAMP = /^[\x21-\x7e]{1,256}$/;
+function el(tag, attrs, texte) { const e = document.createElement(tag); Object.assign(e, attrs || {}); if (texte !== undefined) e.textContent = texte; return e; }
+function b64u(buf) { let s = ""; new Uint8Array(buf).forEach(b => s += String.fromCharCode(b)); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); }
+function b64(buf) { let s = ""; new Uint8Array(buf).forEach(b => s += String.fromCharCode(b)); return btoa(s); }
+function deB64u(s) { const t = s.replace(/-/g, "+").replace(/_/g, "/"); const bin = atob(t + "===".slice((t.length + 3) % 4)); return Uint8Array.from(bin, c => c.charCodeAt(0)); }
+async function sha256(data) { return await crypto.subtle.digest("SHA-256", data); }
+function hex(buf) { return Array.from(new Uint8Array(buf), b => b.toString(16).padStart(2, "0")).join(""); }
+function erreur(m) { zone.replaceChildren(el("p", { className: "err" }, m)); }
+function sortie(titre, texte) {
+  const ta = el("textarea", { readOnly: true }); ta.value = texte;
+  const copier = el("button", {}, "Copier"); copier.onclick = async () => { ta.select(); try { await navigator.clipboard.writeText(texte); copier.textContent = "Copié ✓"; } catch (e) { document.execCommand("copy"); copier.textContent = "Copié ✓"; } };
+  const ouvrir = el("button", {}, "Ouvrir le bot Telegram"); ouvrir.onclick = () => { location.href = "https://t.me/" + BOT; };
+  const enfants = [el("p", {}, titre), ta, copier];
+  if (navigator.share) { const p = el("button", {}, "Partager vers Telegram"); p.onclick = () => navigator.share({ text: texte }).catch(() => {}); enfants.push(p); }
+  enfants.push(ouvrir);
+  zone.replaceChildren(...enfants);
+}
+function pem(spki) { const b = b64(spki).match(/.{1,64}/g).join("\n"); const t = "-".repeat(5); return t + "BEGIN PUBLIC KEY" + t + "\n" + b + "\n" + t + "END PUBLIC KEY" + t + "\n"; }
+
+async function enroler() {
+  const bouton = el("button", {}, "Créer la passkey (Face ID)");
+  zone.replaceChildren(el("p", {}, "Enrôlement unique : crée la clé Face ID du Cockpit sur cet iPhone."), bouton);
+  bouton.onclick = async () => {
+    try {
+      const cred = await navigator.credentials.create({ publicKey: {
+        rp: { id: RP, name: "Cockpit KMC" },
+        user: { id: crypto.getRandomValues(new Uint8Array(16)), name: "david-cockpit", displayName: "David — Cockpit" },
+        challenge: crypto.getRandomValues(new Uint8Array(32)),
+        pubKeyCredParams: [{ type: "public-key", alg: -7 }],
+        authenticatorSelection: { residentKey: "required", userVerification: "required" },
+        attestation: "none", timeout: 120000 } });
+      if (cred.response.getPublicKeyAlgorithm() !== -7) return erreur("Algorithme inattendu : ES256 exigé.");
+      const spki = cred.response.getPublicKey();
+      const emp = hex(await sha256(new TextEncoder().encode(pem(spki))));
+      sortie("Empreinte : " + emp.slice(0, 16) + " — elle doit être identique au Mac. Colle ce texte au bot :", "ENROLEFACEID " + b64(spki));
+    } catch (e) { erreur("Passkey non créée : " + e.message); }
+  };
+}
+
+async function go(frag) {
+  let o;
+  try { o = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(deB64u(frag))); } catch (e) { return erreur("Lien illisible."); }
+  if (!o || typeof o !== "object" || !["id", "e", "n", "t"].every(k => typeof o[k] === "string" && CHAMP.test(o[k])) || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ$/.test(o.t))
+    return erreur("Lien incomplet.");
+  const age = Math.round(Date.now() / 1000 - Date.parse(o.t) / 1000);
+  let nom; try { nom = decodeURIComponent(o.id); } catch (e) { nom = o.id; }
+  const bouton = el("button", {}, "Donner le GO par Face ID");
+  zone.replaceChildren(el("p", {}, "GO de la fiche :"), el("p", { className: "emp" }, nom),
+    el("p", {}, "Empreinte (compare avec le message du bot) :"), el("p", { className: "emp" }, o.e.slice(0, 12)),
+    el("p", { className: "petit" }, o.e), el("p", { className: "petit" }, "Lien émis il y a " + age + " s (5 min au plus)"), bouton);
+  if (age > VALIDITE || age < -5) { bouton.disabled = true; bouton.textContent = "Lien périmé : envoie /go au bot"; return; }
+  bouton.onclick = async () => {
+    try {
+      const msg = new TextEncoder().encode([VERSION, "fiche", o.id, o.e, o.n, o.t].join("\n"));
+      const a = await navigator.credentials.get({ publicKey: { challenge: await sha256(msg), rpId: RP, userVerification: "required", timeout: 120000 } });
+      const charge = { v: 1, id: o.id, ts: o.t, a: b64u(a.response.authenticatorData), c: b64u(a.response.clientDataJSON), s: b64u(a.response.signature) };
+      sortie("Signé. Colle ce texte au bot (valable jusqu'à 5 min après l'émission du lien) :", "GOFACEID " + b64u(new TextEncoder().encode(JSON.stringify(charge))));
+    } catch (e) { erreur("Signature refusée : " + e.message); }
+  };
+}
+
+const h = location.hash.slice(1);
+if (!window.PublicKeyCredential) erreur("Passkeys indisponibles dans ce navigateur.");
+else if (h === "enrole") enroler();
+else if (h.startsWith("go=")) go(h.slice(3));
+else zone.replaceChildren(el("p", {}, "Ouvre un lien envoyé par le bot du Cockpit (/go)."));
+</script>
+</body>
+</html>
