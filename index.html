@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-vTWWZff13jDUoPvOVXA7V9I6WF6BPnfe3NzCk8xMqc8='; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-yX2I3DIZ/soKf/DGbdh8N/4Cxe4tuGxHpHFdaIMDmQs='; style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'">
 <meta name="referrer" content="no-referrer">
 <title>Cockpit GO</title>
 <style>
@@ -81,10 +81,11 @@ async function go(frag) {
     el("p", {}, "Empreinte (compare avec le message du bot) :"), el("p", { className: "emp" }, o.e.slice(0, 12)),
     el("p", { className: "petit" }, o.e), el("p", { className: "petit" }, "Lien émis il y a " + age + " s (5 min au plus)"), bouton);
   if (age > VALIDITE || age < -5) { bouton.disabled = true; bouton.textContent = "Lien périmé : envoie /go au bot"; return; }
+  // Défi calculé avant le toucher : Safari refuse Face ID si un await sépare le geste de l'appel WebAuthn.
+  const defi = await sha256(new TextEncoder().encode([VERSION, "fiche", o.id, o.e, o.n, o.t].join("\n")));
   bouton.onclick = async () => {
     try {
-      const msg = new TextEncoder().encode([VERSION, "fiche", o.id, o.e, o.n, o.t].join("\n"));
-      const a = await navigator.credentials.get({ publicKey: { challenge: await sha256(msg), rpId: RP, userVerification: "required", timeout: 120000 } });
+      const a = await navigator.credentials.get({ publicKey: { challenge: defi, rpId: RP, userVerification: "required", timeout: 120000 } });
       const charge = { v: 1, id: o.id, ts: o.t, a: b64u(a.response.authenticatorData), c: b64u(a.response.clientDataJSON), s: b64u(a.response.signature) };
       sortie("Signé. Colle ce texte au bot (valable jusqu'à 5 min après l'émission du lien) :", "GOFACEID " + b64u(new TextEncoder().encode(JSON.stringify(charge))));
     } catch (e) { erreur("Signature refusée : " + e.message); }
